@@ -1063,6 +1063,194 @@ func TestTransitionTierWithPrefixAndTags(t *testing.T) {
 	}
 }
 
+func TestTagPrefixLifecycleTransitionAndExpiration(t *testing.T) {
+	const config = `<LifecycleConfiguration>
+		<Rule>
+			<ID>tag-prefix-tier-then-expire</ID>
+			<Filter>
+				<And>
+					<Prefix>archive/</Prefix>
+					<Tag><Key>env</Key><Value>prod</Value></Tag>
+					<Tag><Key>class</Key><Value>cold</Value></Tag>
+				</And>
+			</Filter>
+			<Status>Enabled</Status>
+			<Transition>
+				<Days>30</Days>
+				<StorageClass>COLD</StorageClass>
+			</Transition>
+			<Expiration>
+				<Days>90</Days>
+			</Expiration>
+		</Rule>
+	</LifecycleConfiguration>`
+
+	lc, err := ParseLifecycleConfig(strings.NewReader(config))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if err := lc.Validate(lock.Retention{}); err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+
+	modTime := time.Date(2025, time.January, 1, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name        string
+		objName     string
+		tags        string
+		days        int
+		wantAction  Action
+		wantRuleID  string
+		wantStorage string
+		wantMatch   bool
+	}{
+		{
+			name:       "before transition",
+			objName:    "archive/2025/object",
+			tags:       "env=prod&class=cold",
+			days:       10,
+			wantRuleID: "tag-prefix-tier-then-expire",
+			wantMatch:  true,
+		},
+		{
+			name:        "transition by matching tags and prefix",
+			objName:     "archive/2025/object",
+			tags:        "env=prod&class=cold&owner=storage",
+			days:        40,
+			wantAction:  TransitionAction,
+			wantRuleID:  "tag-prefix-tier-then-expire",
+			wantStorage: "COLD",
+			wantMatch:   true,
+		},
+		{
+			name:       "expire after transition",
+			objName:    "archive/2025/object",
+			tags:       "env=prod&class=cold",
+			days:       100,
+			wantAction: DeleteAction,
+			wantRuleID: "tag-prefix-tier-then-expire",
+			wantMatch:  true,
+		},
+		{
+			name:       "prefix does not match",
+			objName:    "logs/2025/object",
+			tags:       "env=prod&class=cold",
+			days:       100,
+			wantAction: NoneAction,
+		},
+		{
+			name:       "one required tag is missing",
+			objName:    "archive/2025/object",
+			tags:       "env=prod",
+			days:       100,
+			wantAction: NoneAction,
+		},
+		{
+			name:       "required tag value does not match",
+			objName:    "archive/2025/object",
+			tags:       "env=prod&class=hot",
+			days:       40,
+			wantAction: NoneAction,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			obj := ObjectOpts{
+				Name:        tc.objName,
+				UserTags:    tc.tags,
+				ModTime:     modTime,
+				IsLatest:    true,
+				NumVersions: 1,
+			}
+			event := lc.eval(obj, modTime.Add(time.Duration(tc.days)*24*time.Hour), 0)
+			if event.Action != tc.wantAction {
+				t.Fatalf("expected action %v, got %v", tc.wantAction, event.Action)
+			}
+			if event.Action != NoneAction && event.RuleID != tc.wantRuleID {
+				t.Fatalf("expected rule ID %q, got %q", tc.wantRuleID, event.RuleID)
+			}
+			if event.StorageClass != tc.wantStorage {
+				t.Fatalf("expected storage class %q, got %q", tc.wantStorage, event.StorageClass)
+			}
+
+			matching := lc.FilterRules(obj)
+			if tc.wantMatch {
+				if len(matching) != 1 || matching[0].ID != tc.wantRuleID {
+					t.Fatalf("expected matching rule %q, got %v", tc.wantRuleID, matching)
+				}
+			} else if len(matching) != 0 {
+				t.Fatalf("expected no matching rules, got %d", len(matching))
+			}
+		})
+	}
+}
+
+func TestTagLifecycleXMLRoundTripAndLegacyPrefix(t *testing.T) {
+	const config = `<LifecycleConfiguration>
+		<Rule>
+			<ID>tag-prefix</ID>
+			<Filter>
+				<And>
+					<Prefix>archive/</Prefix>
+					<Tag><Key>env</Key><Value>prod</Value></Tag>
+				</And>
+			</Filter>
+			<Status>Enabled</Status>
+			<Expiration><Days>7</Days></Expiration>
+		</Rule>
+		<Rule>
+			<ID>legacy-prefix-with-tag</ID>
+			<Prefix>logs/</Prefix>
+			<Filter>
+				<Tag><Key>env</Key><Value>dev</Value></Tag>
+			</Filter>
+			<Status>Enabled</Status>
+			<Expiration><Days>1</Days></Expiration>
+		</Rule>
+	</LifecycleConfiguration>`
+
+	lc, err := ParseLifecycleConfig(strings.NewReader(config))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if err := lc.Validate(lock.Retention{}); err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+
+	if got := lc.Rules[0].GetPrefix(); got != "archive/" {
+		t.Fatalf("expected prefix %q, got %q", "archive/", got)
+	}
+	if got := lc.Rules[0].Tags(); got != "env=prod" {
+		t.Fatalf("expected tags %q, got %q", "env=prod", got)
+	}
+	if got := lc.Rules[1].GetPrefix(); got != "logs/" {
+		t.Fatalf("expected legacy prefix %q, got %q", "logs/", got)
+	}
+
+	buf, err := xml.Marshal(lc)
+	if err != nil {
+		t.Fatalf("unexpected marshal error: %v", err)
+	}
+	if !strings.Contains(string(buf), "<And><Prefix>archive/</Prefix><Tag><Key>env</Key><Value>prod</Value></Tag></And>") {
+		t.Fatalf("marshaled config lost tag/prefix filter: %s", buf)
+	}
+
+	var roundTripped Lifecycle
+	if err := xml.Unmarshal(buf, &roundTripped); err != nil {
+		t.Fatalf("unexpected unmarshal error: %v", err)
+	}
+	if err := roundTripped.Validate(lock.Retention{}); err != nil {
+		t.Fatalf("round-tripped config failed validation: %v", err)
+	}
+	if got := roundTripped.Rules[0].Tags(); got != "env=prod" {
+		t.Fatalf("round-tripped tags %q", got)
+	}
+	if got := roundTripped.Rules[1].GetPrefix(); got != "logs/" {
+		t.Fatalf("round-tripped legacy prefix %q", got)
+	}
+}
+
 func TestNoncurrentVersionsLimit(t *testing.T) {
 	// test that the lowest max noncurrent versions limit is returned among
 	// matching rules

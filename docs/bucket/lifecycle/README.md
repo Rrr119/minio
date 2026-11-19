@@ -57,6 +57,42 @@ TempUploads |  temp/   |    ✓       |  ✓     |   7 day(s)   |     ✗       
 ------------|----------|------------|--------|--------------|--------------|------------------|------------------|------------------
 ```
 
+### 2.1 Filter by object tags
+
+Lifecycle rules can filter objects by tags. A single tag can be set directly
+under `Filter`, while a prefix and one or more tags are combined with `And`.
+All tags listed in the filter must match the object.
+
+The following rule transitions matching objects under `logs/` after 30 days
+and expires them after 90 days:
+
+```xml
+<LifecycleConfiguration>
+  <Rule>
+    <ID>archive-prod-logs</ID>
+    <Filter>
+      <And>
+        <Prefix>logs/</Prefix>
+        <Tag><Key>env</Key><Value>prod</Value></Tag>
+        <Tag><Key>class</Key><Value>cold</Value></Tag>
+      </And>
+    </Filter>
+    <Status>Enabled</Status>
+    <Transition>
+      <Days>30</Days>
+      <StorageClass>COLD</StorageClass>
+    </Transition>
+    <Expiration>
+      <Days>90</Days>
+    </Expiration>
+  </Rule>
+</LifecycleConfiguration>
+```
+
+The same filter is supported by noncurrent version transition and expiration
+actions. Configurations using the deprecated top-level `<Prefix>` element, or
+a `<Filter><Tag>` without a prefix, continue to work unchanged.
+
 ## 3. Activate ILM versioning features
 
 This will only work with a versioned bucket, take a look at [Bucket Versioning Guide](https://docs.min.io/community/minio-object-store/administration/object-management/object-versioning.html) for more understanding.

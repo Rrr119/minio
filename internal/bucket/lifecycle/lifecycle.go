@@ -279,16 +279,7 @@ func (lc Lifecycle) FilterRules(obj ObjectOpts) []Rule {
 	}
 	var rules []Rule
 	for _, rule := range lc.Rules {
-		if rule.Status == Disabled {
-			continue
-		}
-		if !strings.HasPrefix(obj.Name, rule.GetPrefix()) {
-			continue
-		}
-		if !rule.Filter.TestTags(obj.UserTags) {
-			continue
-		}
-		if !obj.DeleteMarker && !rule.Filter.BySize(obj.Size) {
+		if !rule.Match(obj) {
 			continue
 		}
 		rules = append(rules, rule)

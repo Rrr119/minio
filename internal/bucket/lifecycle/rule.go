@@ -20,6 +20,7 @@ package lifecycle
 import (
 	"bytes"
 	"encoding/xml"
+	"strings"
 )
 
 // Status represents lifecycle configuration status
@@ -146,6 +147,25 @@ func (r Rule) Tags() string {
 		return buf.String()
 	}
 	return ""
+}
+
+// Match returns true if the object satisfies the rule's status, prefix,
+// tag and size predicates. A rule with a tag filter only matches objects
+// that carry all of the specified tags.
+func (r Rule) Match(obj ObjectOpts) bool {
+	if r.Status == Disabled {
+		return false
+	}
+	if !strings.HasPrefix(obj.Name, r.GetPrefix()) {
+		return false
+	}
+	if !r.Filter.TestTags(obj.UserTags) {
+		return false
+	}
+	if !obj.DeleteMarker && !r.Filter.BySize(obj.Size) {
+		return false
+	}
+	return true
 }
 
 // Validate - validates the rule element

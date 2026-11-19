@@ -1,0 +1,18 @@
+{
+  "uid": "26340",
+  "harness": "Codex CLI",
+  "snapshotUrl": "https://github.com/Rrr119/minio/commit/bbf8e191bb3d74eb1dc72223c8e4db1f0890096e",
+  "harnessVersion": "codex-cli 0.167.2",
+  "operatingSystem": "Ubuntu 26.04.1 LTS",
+  "operatingSystemCell": [
+    "MacOS/Linux"
+  ],
+  "outputDirectory": "/home/dev/feedback/uid26340",
+  "wslDistro": "Ubuntu-26.04",
+  "B": {
+    "success": false,
+    "canceled": true,
+    "error": "任务已取消",
+    "side": "B"
+  }
+}

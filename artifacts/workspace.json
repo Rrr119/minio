@@ -1,0 +1,17 @@
+{
+  "root": "/home/dev/feedback/uid26340",
+  "B": "/home/dev/feedback/uid26340",
+  "sha": "bbf8e191bb3d74eb1dc72223c8e4db1f0890096e",
+  "wslDistro": "Ubuntu-26.04",
+  "source": {
+    "owner": "minio",
+    "repo": "minio",
+    "sha": "bbf8e191bb3d74eb1dc72223c8e4db1f0890096e"
+  },
+  "fork": {
+    "owner": "Rrr119",
+    "repo": "minio",
+    "cloneUrl": "https://github.com/Rrr119/minio.git"
+  },
+  "at": "2026-11-19T01:14:29.348Z"
+}
